@@ -4,6 +4,7 @@ use crate::inverter::Lri::{
     AcMsVol0, AcMsVol1, AcMsVol2,
     AcMsAmp0, AcMsAmp1, AcMsAmp2,
     MeteringDyWhOut, MeteringTotWhOut,
+    InverterTemp,
 };
 
 use crate::log;
@@ -62,6 +63,8 @@ pub enum Lri {
 
     MeteringTotWhOut = 0x00260100, // *00* Total yield (aka SPOT_ETOTAL)
     MeteringDyWhOut = 0x00262200,  // *00* Day yield (aka SPOT_ETODAY)
+
+    InverterTemp = 0x00237700,     // *40* Inverter temperature
 }
 
 pub struct BatteryInfo {
@@ -83,6 +86,10 @@ pub struct ACInfo {
 pub struct EnergyProductionInfo {
     pub daily_wh: u32,
     pub total_wh: u32,
+}
+
+pub struct InverterTemperature {
+    pub temperature: u32,
 }
 
 impl Inverter {
@@ -311,6 +318,11 @@ impl Inverter {
         command: 0x54000200,
         first: 0x00260100,
         last: 0x002622FF,
+    };
+    const INVERTER_TEMPERATURE: DataType = DataType {
+        command: 0x52000200,
+        first: 0x00237700,
+        last: 0x002377FF,
     };
 
     fn get_data(
@@ -768,6 +780,50 @@ impl Inverter {
                     }
                 }
                 Ok(ep_info)
+            }
+            Err(error) => {
+                Err(InverterError {
+                    message: error.message,
+                })
+            }
+        }
+    }
+    pub fn get_inverter_temperature(
+        &mut self,
+        socket: &Socket,
+    ) -> Result<InverterTemperature, InverterError> {
+        match self.get_data(socket, &Inverter::INVERTER_TEMPERATURE) {
+            Ok(mut buffer) => {
+                let mut inverter_temp = InverterTemperature {
+                    temperature: 0,
+                };
+
+                while buffer.len() > buffer.get_rpos() {
+                    let code = buffer.read_u32();
+                    if code == 0 {
+                        return Ok(inverter_temp);
+                    }
+                    let lri = code & 0x00FFFF00;
+                    let _data_type = code >> 24;
+                    if lri == InverterTemp as u32 && inverter_temp.temperature == 0 {
+                        let _date = buffer.read_u32();
+                        let value = buffer.read_u32();
+                        inverter_temp.temperature = value;
+                        buffer.read_u32();
+                        buffer.read_u32();
+                        buffer.read_u32();
+                        buffer.read_u32();
+                    } else {
+                        log!(format!("unhandled (inverter temperature): {:x}", lri));
+                        let _date = buffer.read_u32();
+                        buffer.read_u32();
+                        buffer.read_u32();
+                        buffer.read_u32();
+                        buffer.read_u32();
+                        buffer.read_u32();
+                    }
+                }
+                Ok(inverter_temp)
             }
             Err(error) => {
                 Err(InverterError {

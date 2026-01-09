@@ -60,6 +60,7 @@ const AC_VOLTAGE: &str = "smainverter_spot_ac_voltage_millivolts";
 const AC_CURRENT: &str = "smainverter_spot_ac_current_milliamperes";
 const PRODUCTION_TOTAL: &str = "smainverter_metering_total_watthours";
 const PRODUCTION_DAILY: &str = "smainverter_metering_daily_watthours";
+const INVERTER_TEMPERATURE: &str = "smainverter_inverter_temperature_degreescelsius";
 
 fn is_discovery_response(response_packet: &[u8]) -> bool {
     // Discovery response packet as per https://cdn.sma.de/fileadmin/content/www.developer.sma.de/docs/SpeedwireDD-TI-en-10.pdf?v=1699275967
@@ -191,6 +192,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let gauge = GaugeVec::new(gauge_opts, &["inverter"]).unwrap();
     register(Box::new(gauge.borrow().clone())).unwrap();
     gauges.insert(PRODUCTION_DAILY, gauge);
+
+    let gauge_opts = Opts::new(INVERTER_TEMPERATURE, "Inverter temperature");
+    let gauge = GaugeVec::new(gauge_opts, &["inverter"]).unwrap();
+    register(Box::new(gauge.borrow().clone())).unwrap();
+    gauges.insert(INVERTER_TEMPERATURE, gauge);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 9756));
 
@@ -430,6 +436,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     Err(inverter_error) => {
                         if inverter_error.message.ne("Unsupported") {
                             log!(format!("[{}] Unable to get energy production from inverter. {}",
+                                &i.address.ip().to_string(), inverter_error.message));
+                        }
+                    }
+                }
+                match i.get_inverter_temperature(socket.borrow()) {
+                    Ok(data) => {
+                        let _lock = LOCK.lock().unwrap();
+                        gauges
+                            .get(INVERTER_TEMPERATURE)
+                            .unwrap()
+                            .with_label_values(&[&i.address.ip().to_string()])
+                            .set(data.temperature as f64/10_f64);
+                    }
+                    Err(inverter_error) => {
+                        if inverter_error.message.ne("Unsupported") {
+                            log!(format!("[{}] Unable to get inverter temperature from inverter. {}",
                                 &i.address.ip().to_string(), inverter_error.message));
                         }
                     }
