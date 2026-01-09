@@ -1,5 +1,5 @@
 use crate::inverter::Lri::{
-    BatAmp, BatChaStt, BatTmpVal, BatVol,
+    BatCycles, BatAmp, BatChaStt, BatTmpVal, BatVol,
     DcMsAmp, DcMsVol,
     AcMsVol0, AcMsVol1, AcMsVol2,
     AcMsAmp0, AcMsAmp1, AcMsAmp2,
@@ -56,6 +56,7 @@ pub enum Lri {
     AcMsAmp1 = 0x00465400,         // *40* AC current input (aka SPOT_IAC2)
     AcMsAmp2 = 0x00465500,         // *40* AC current input (aka SPOT_IAC3)
 
+    BatCycles = 0x00491E00,        // *40* Battery charge/discharge cycles
     BatTmpVal = 0x00495B00,        // *40* Battery temperature
     BatVol = 0x00495C00,           // *40* Battery voltage
     BatAmp = 0x00495D00,           // *40* Battery current
@@ -65,6 +66,7 @@ pub enum Lri {
 }
 
 pub struct BatteryInfo {
+    pub cycles: [u16; 3],
     pub temperature: [u16; 3],
     pub voltage: [u16; 3],
     pub current: [i16; 3],
@@ -474,6 +476,7 @@ impl Inverter {
         match self.get_data(socket, &Inverter::BATTERY_INFO) {
             Ok(mut buffer) => {
                 let mut battery_info = BatteryInfo {
+                    cycles: [0, 0, 0],
                     temperature: [0, 0, 0],
                     voltage: [0, 0, 0],
                     current: [0, 0, 0],
@@ -487,7 +490,31 @@ impl Inverter {
                     let lri = code & 0x00FFFF00;
                     let _data_type = code >> 24;
 
-                    if lri == BatTmpVal as u32 && battery_info.temperature[0] == 0 {
+                    if lri == BatCycles as u32 && battery_info.cycles[0] == 0 {
+                        let _date = buffer.read_u32();
+                        let value = buffer.read_u32();
+                        battery_info.cycles[0] = value as u16;
+                        buffer.read_u32();
+                        buffer.read_u32();
+                        buffer.read_u32();
+                        buffer.read_u32();
+                    } else if lri == BatCycles as u32 && battery_info.cycles[1] == 0 {
+                        let _date = buffer.read_u32();
+                        let value = buffer.read_u32();
+                        battery_info.cycles[1] = value as u16;
+                        buffer.read_u32();
+                        buffer.read_u32();
+                        buffer.read_u32();
+                        buffer.read_u32();
+                    } else if lri == BatCycles as u32 && battery_info.cycles[2] == 0 {
+                        let _date = buffer.read_u32();
+                        let value = buffer.read_u32();
+                        battery_info.cycles[2] = value as u16;
+                        buffer.read_u32();
+                        buffer.read_u32();
+                        buffer.read_u32();
+                        buffer.read_u32();
+                    } else if lri == BatTmpVal as u32 && battery_info.temperature[0] == 0 {
                         let _date = buffer.read_u32();
                         let value = buffer.read_u32();
                         battery_info.temperature[0] = value as u16;

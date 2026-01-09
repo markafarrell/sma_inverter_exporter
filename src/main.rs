@@ -50,6 +50,7 @@ fn full<T: Into<Bytes>>(chunk: T) -> BoxBody<Bytes, Infallible> {
     Full::new(chunk.into()).boxed()
 }
 
+const BAT_CYCLES: &str = "smainverter_battery_cycles";
 const BAT_VOLTAGE: &str = "smainverter_battery_voltage_millivolts";
 const BAT_CURRENT: &str = "smainverter_battery_current_milliamperes";
 const BAT_CHARGE: &str = "smainverter_battery_charge_percentage";
@@ -141,6 +142,11 @@ fn find_inverters() -> Result<Vec<Inverter>, Error> {
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Create a Counter.
     let mut gauges: HashMap<&'static str, GaugeVec> = HashMap::new();
+
+    let gauge_opts = Opts::new(BAT_CYCLES, "Battery cycles");
+    let gauge = GaugeVec::new(gauge_opts, &["line"]).unwrap();
+    register(Box::new(gauge.borrow().clone())).unwrap();
+    gauges.insert(BAT_CYCLES, gauge);
 
     let gauge_opts = Opts::new(BAT_VOLTAGE, "Battery voltage");
     let gauge = GaugeVec::new(gauge_opts, &["line"]).unwrap();
@@ -311,6 +317,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                             .unwrap()
                             .with_label_values(&["C"])
                             .set(data.current[2] as f64);
+                        gauges
+                            .get(BAT_CYCLES)
+                            .unwrap()
+                            .with_label_values(&["A"])
+                            .set(data.cycles[0] as f64);
+                        gauges
+                            .get(BAT_CYCLES)
+                            .unwrap()
+                            .with_label_values(&["B"])
+                            .set(data.cycles[1] as f64);
+                        gauges
+                            .get(BAT_CYCLES)
+                            .unwrap()
+                            .with_label_values(&["C"])
+                            .set(data.cycles[2] as f64);
                     }
                     Err(inverter_error) => {
                         if inverter_error.message.ne("Unsupported") {
