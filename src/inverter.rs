@@ -4,6 +4,7 @@ use crate::inverter::Lri::{
     AcMsVol0, AcMsVol1, AcMsVol2,
     AcMsAmp0, AcMsAmp1, AcMsAmp2,
     MeteringDyWhOut, MeteringTotWhOut,
+    DCPwr0, DCPwr1,
 };
 
 use crate::log;
@@ -62,6 +63,9 @@ pub enum Lri {
 
     MeteringTotWhOut = 0x00260100, // *00* Total yield (aka SPOT_ETOTAL)
     MeteringDyWhOut = 0x00262200,  // *00* Day yield (aka SPOT_ETODAY)
+
+    DCPwr0 = 0x00251E00,           // *40* DC Power input (aka SPOT_PDC1)
+    DCPwr1 = 0x00251F00,           // *40* DC Power input (aka SPOT_PDC2)
 }
 
 pub struct BatteryInfo {
@@ -83,6 +87,10 @@ pub struct ACInfo {
 pub struct EnergyProductionInfo {
     pub daily_wh: u32,
     pub total_wh: u32,
+}
+
+pub struct DCPowerInfo {
+    pub power: [u16; 2],
 }
 
 impl Inverter {
@@ -311,6 +319,11 @@ impl Inverter {
         command: 0x54000200,
         first: 0x00260100,
         last: 0x002622FF,
+    };
+    const SPOT_DC_POWER: DataType = DataType {
+        command: 0x53800200,
+        first: 0x00251E00,
+        last: 0x00251EFF,
     };
 
     fn get_data(
@@ -768,6 +781,54 @@ impl Inverter {
                     }
                 }
                 Ok(ep_info)
+            }
+            Err(error) => {
+                Err(InverterError {
+                    message: error.message,
+                })
+            }
+        }
+    }
+
+    pub fn get_dc_power(
+        &mut self,
+        socket: &Socket,
+    ) -> Result<DCPowerInfo, InverterError> {
+        match self.get_data(socket, &Inverter::SPOT_DC_POWER) {
+            Ok(mut buffer) => {
+                let mut dc_info = DCPowerInfo {
+                    power: [0; 2],
+                };
+
+                while buffer.len() > buffer.get_rpos() {
+                    let code = buffer.read_u32();
+                    if code == 0 {
+                        return Ok(dc_info);
+                    }
+                    let lri = code & 0x00FFFF00;
+                    let _data_type = code >> 24;
+                    if lri == DCPwr0 as u32 && dc_info.power[0] == 0 {
+                        let _date = buffer.read_u32();
+                        let value = buffer.read_u32();
+                        dc_info.power[0] = value as u16;
+                        buffer.read_u32();
+                        buffer.read_u32();
+                        buffer.read_u32();
+                        buffer.read_u32();
+                    } else if lri == DCPwr1 as u32 && dc_info.power[1] == 0 {
+                        let _date = buffer.read_u32();
+                        let value = buffer.read_u32();
+                        dc_info.power[1] = value as u16;
+                        buffer.read_u32();
+                        buffer.read_u32();
+                        buffer.read_u32();
+                        buffer.read_u32();
+                    } else {
+                        log!(format!("unhandled (dc power): {:x}", lri));
+                        break;
+                    }
+                }
+                Ok(dc_info)
             }
             Err(error) => {
                 Err(InverterError {

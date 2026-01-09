@@ -60,6 +60,7 @@ const AC_VOLTAGE: &str = "smainverter_spot_ac_voltage_millivolts";
 const AC_CURRENT: &str = "smainverter_spot_ac_current_milliamperes";
 const PRODUCTION_TOTAL: &str = "smainverter_metering_total_watthours";
 const PRODUCTION_DAILY: &str = "smainverter_metering_daily_watthours";
+const DC_POWER: &str = "smainverter_spot_dc_power_watts";
 
 fn is_discovery_response(response_packet: &[u8]) -> bool {
     // Discovery response packet as per https://cdn.sma.de/fileadmin/content/www.developer.sma.de/docs/SpeedwireDD-TI-en-10.pdf?v=1699275967
@@ -191,6 +192,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let gauge = GaugeVec::new(gauge_opts, &["inverter"]).unwrap();
     register(Box::new(gauge.borrow().clone())).unwrap();
     gauges.insert(PRODUCTION_DAILY, gauge);
+
+    let gauge_opts = Opts::new(DC_POWER, "DC Power");
+    let gauge = GaugeVec::new(gauge_opts, &["line"]).unwrap();
+    register(Box::new(gauge.borrow().clone())).unwrap();
+    gauges.insert(DC_POWER, gauge);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 9756));
 
@@ -430,6 +436,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     Err(inverter_error) => {
                         if inverter_error.message.ne("Unsupported") {
                             log!(format!("[{}] Unable to get energy production from inverter. {}",
+                                &i.address.ip().to_string(), inverter_error.message));
+                        }
+                    }
+                }
+                match i.get_dc_power(socket.borrow()) {
+                    Ok(data) => {
+                        let _lock = LOCK.lock().unwrap();
+                        gauges
+                            .get(DC_POWER)
+                            .unwrap()
+                            .with_label_values(&["1"])
+                            .set(data.power[0] as f64/1000_f64);
+                        gauges
+                            .get(DC_POWER)
+                            .unwrap()
+                            .with_label_values(&["2"])
+                            .set(data.power[1] as f64/1000_f64);
+                    }
+                    Err(inverter_error) => {
+                        if inverter_error.message.ne("Unsupported") {
+                            log!(format!("[{}] Unable to get dc power from inverter. {}",
                                 &i.address.ip().to_string(), inverter_error.message));
                         }
                     }
